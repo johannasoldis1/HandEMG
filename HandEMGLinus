@@ -122,35 +122,34 @@ extension BLEManager:CBPeripheralDelegate {
     }
     
     //This is the function which catches the data from the sensor
-    //Currently packs the data back into 16-bits, and then scales from 0-1
+    //Packs the data back into 16-bits, then scales from -1 to 1
     //Does not care at what rate the data is coming in.
     func peripheral(_ peripheral: CBPeripheral, didUpdateValueFor characteristic: CBCharacteristic,
                     error: Error?) {
-      switch characteristic.uuid {
-      case CBUUID(string:"E399EFC0-79F9-4E08-82A8-F3AA1DC609F1"):
-          guard let characteristicData = characteristic.value else {return}
-          let byteArray = [UInt8](characteristicData)
-          var graphData: Array<Float> = [0.0, 0.0, 0.0, 0.0, 0.0,
-                                         0.0, 0.0, 0.0, 0.0, 0.0]
-          var toggle = false
-          var count = 0
-          for bt in byteArray {
-              if toggle && !graphData.isEmpty{
-                  graphData[count] += Float(bt)*(256.0)
-                  graphData[count] /= 4096.0
-                  count += 1
-              }
-              else {
-                  graphData[count] = Float(bt)
-              }
-              toggle.toggle()
-              
-          }
-          print(graphData)
-          emg.append(values:graphData)
-          
+        switch characteristic.uuid {
+        case CBUUID(string:"E399EFC0-79F9-4E08-82A8-F3AA1DC609F1"):
+            guard let characteristicData = characteristic.value else { return }
+            let byteArray = [UInt8](characteristicData)
+            var graphData: Array<Float> = [0.0, 0.0, 0.0, 0.0, 0.0,
+                                           0.0, 0.0, 0.0, 0.0, 0.0]
+            var toggle = false
+            var count = 0
+            for bt in byteArray {
+                if toggle && !graphData.isEmpty {
+                    graphData[count] += Float(bt) * 256.0
+                    graphData[count] /= 4096.0 // scales to 0 - 1
+                    graphData[count] = (graphData[count] - 0.5) * 2.0 // adjusts to -1 to 1
+                    count += 1
+                } else {
+                    graphData[count] = Float(bt)
+                }
+                toggle.toggle()
+            }
+            print(graphData)
+            emg.append(values: graphData)
+            
         default:
-          print("Unhandled Characteristic UUID: \(characteristic.uuid)")
+            print("Unhandled Characteristic UUID: \(characteristic.uuid)")
       }
     }
     
