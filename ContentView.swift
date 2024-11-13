@@ -30,11 +30,19 @@ struct ContentView: View {
                     }
                 }
                 let cutGraph = graph.values[firstSample()..<graph.values.count]
-                path.move(to: CGPoint(x:0.0, y:0.0))
-                
+                let midY = height / 2  // Set the midpoint for -1 to 1 range
+
+                path.move(to: CGPoint(x: 0.0, y: midY))
+
                 cutGraph.enumerated().forEach { index, item in
-                    path.addLine(to: CGPoint(x:width*CGFloat(index)/(CGFloat(cutGraph.count)-1.0), y:height*item))
+                    path.addLine(
+                        to: CGPoint(
+                            x: width * CGFloat(index) / (CGFloat(cutGraph.count) - 1.0),
+                            y: midY - (height / 2 * CGFloat(item)) // scale to -1 to 1
+                        )
+                    )
                 }
+
             }
             .stroke(Color.red, lineWidth: 1.5)
             
