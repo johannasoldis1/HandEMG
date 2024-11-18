@@ -45,6 +45,35 @@ struct ContentView: View {
 
             }
             .stroke(Color.red, lineWidth: 1.5)
+
+            // Second graph (duplicate of the first)
+            Path{ path in
+                let height = UIScreen.main.bounds.height / 3
+                let width = UIScreen.main.bounds.width
+                let firstSample = { () -> Int in
+                    if graph.values.count > 1000 {
+                            return graph.values.count - 1000
+                    }
+                    else {
+                            return 0
+                    }
+                }
+                let cutGraph = graph.values[firstSample()..<graph.values.count]
+                let midY = height / 2  // Set the midpoint for -1 to 1 range
+
+                path.move(to: CGPoint(x: 0.0, y: midY))
+
+                cutGraph.enumerated().forEach { index, item in
+                    path.addLine(
+                        to: CGPoint(
+                            x: width * CGFloat(index) / (CGFloat(cutGraph.count) - 1.0),
+                            y: midY - (height / 2 * CGFloat(item)) // scale to -1 to 1
+                        )
+                    )
+                }
+
+            }
+            .stroke(Color.blue, lineWidth: 1.5)
             
             Text("Connect to sensor")
                             .font(.title)
@@ -59,29 +88,6 @@ struct ContentView: View {
                     Text(String(peripheral.rssi))
                 }
             }.frame(height: 300)
-
-            // Adding a blue line to start working on filtering
-            
-            Path{ path in
-                let height = UIScreen.main.bounds.height / 3
-                let width = UIScreen.main.bounds.width
-                let firstSample = { () -> Int in
-                    if graph.values.count > 1000 {
-                            return graph.values.count - 1000
-                    }
-                    else {
-                            return 0
-                    }
-                }
-                let cutGraph = graph.values[firstSample()..<graph.values.count]
-                path.move(to: CGPoint(x:0.0, y:0.0))
-                
-                cutGraph.enumerated().forEach { index, item in
-                    path.addLine(to: CGPoint(x:width*CGFloat(index)/(CGFloat(cutGraph.count)-1.0), y:height*item))
-                }
-            }
-            .stroke(Color.blue, lineWidth: 1.5)
-            
             Spacer()
 
             Text("STATUS")
