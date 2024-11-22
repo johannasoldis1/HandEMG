@@ -11,24 +11,40 @@ struct ContentView: View {
     var body: some View {
         VStack {
             // Graph visualization
-            Path { path in
-                let height = UIScreen.main.bounds.height / 3
-                let width = UIScreen.main.bounds.width
-                let firstSample = { () -> Int in
-                    if graph.values.count > 1000 {
-                        return graph.values.count - 1000
-                    } else {
-                        return 0
+            ZStack {
+                // EMG Graph
+                Path { path in
+                    let height = UIScreen.main.bounds.height / 3
+                    let width = UIScreen.main.bounds.width
+                    let firstSample = { () -> Int in
+                        if graph.values.count > 1000 {
+                            return graph.values.count - 1000
+                        } else {
+                            return 0
+                        }
+                    }
+                    let cutGraph = graph.values[firstSample()..<graph.values.count]
+                    path.move(to: CGPoint(x: 0.0, y: 0.0))
+
+                    cutGraph.enumerated().forEach { index, item in
+                        path.addLine(to: CGPoint(
+                            x: width * CGFloat(index) / (CGFloat(cutGraph.count) - 1.0),
+                            y: height * (1.0 - item) // Invert to fit graph height
+                        ))
                     }
                 }
-                let cutGraph = graph.values[firstSample()..<graph.values.count]
-                path.move(to: CGPoint(x: 0.0, y: 0.0))
+                .stroke(Color.blue, lineWidth: 1.5)
 
-                cutGraph.enumerated().forEach { index, item in
-                    path.addLine(to: CGPoint(x: width * CGFloat(index) / (CGFloat(cutGraph.count) - 1.0), y: height * item))
+                // RMS Line
+                Path { path in
+                    let height = UIScreen.main.bounds.height / 3
+                    let width = UIScreen.main.bounds.width
+                    let rmsY = height * (1.0 - CGFloat(BLE.currentRMS)) // Scale and invert RMS value
+                    path.move(to: CGPoint(x: 0, y: rmsY))
+                    path.addLine(to: CGPoint(x: width, y: rmsY)) // Draw horizontal line
                 }
+                .stroke(Color.red, style: StrokeStyle(lineWidth: 1.5, dash: [5, 3])) // Dashed line
             }
-            .stroke(Color.red, lineWidth: 1.5)
 
             // Bluetooth device list
             Text("Connect to sensor")
