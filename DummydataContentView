@@ -46,6 +46,11 @@ struct ContentView: View {
                 .stroke(Color.red, style: StrokeStyle(lineWidth: 1.5, dash: [5, 3])) // Dashed line
             }
 
+            // Text to see the RMS values
+            Text("Current RMS: \(BLE.currentRMS, specifier: "%.2f")")
+                .font(.headline)
+                .foregroundColor(.red)
+
             // Bluetooth device list
             Text("Connect to sensor")
                 .font(.title)
