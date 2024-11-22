@@ -1,0 +1,112 @@
+//
+//  emgGraphDisplay.swift
+//  EMG-ble-kth
+//
+//  Created by Linus Remahl on 2021-10-31.
+//
+
+import CoreGraphics
+import SwiftUI
+
+class emgGraph : ObservableObject {
+    @Published private(set) var values: Array<CGFloat>
+    var recorded_values: Array<CGFloat> = []
+    var recorded_rms: Array<CGFloat> = [] // New array for RMS values
+    var recording: Bool = false
+    var start_time: CFTimeInterval = 0
+    
+    init(firstValues: Array<CGFloat>) {
+        values = firstValues
+    }
+    
+    func record() {
+        recording = true
+        start_time = CACurrentMediaTime()
+    }
+    
+    func stop_recording_and_save() -> String {
+        let time_recorded: CFTimeInterval = CACurrentMediaTime() - start_time
+        recording = false
+        
+        // Combine EMG and RMS into a CSV-like format
+        var dataset = "Time,EMG,RMS\n"
+        for (index, value) in recorded_values.enumerated() {
+            let time = Double(index) * (time_recorded / Double(recorded_values.count))
+            let rmsValue = index < recorded_rms.count ? recorded_rms[index] : 0.0
+            dataset += "\(time),\(value),\(rmsValue)\n"
+        }
+        
+        // Save to file
+        let paths = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)
+        let date = Date()
+        let dateformatter = DateFormatter()
+        dateformatter.locale = Locale(identifier: "en_US_POSIX")
+        dateformatter.dateFormat = "yyyy-MM-dd'T'HH_mm_ss"
+        
+        let filename = paths[0].appendingPathComponent("emg_data_" +
+            dateformatter.string(from: date) +
+            ".csv")
+        debugPrint(filename)
+        
+        do {
+            try dataset.write(to: filename, atomically: true, encoding: String.Encoding.utf8)
+        } catch {
+            debugPrint("Failed to write file")
+        }
+        
+        // Clear recorded data
+        recorded_values.removeAll()
+        recorded_rms.removeAll()
+        return dataset
+    }
+    
+    // Append a single EMG value
+    func append(value: CGFloat) {
+        if recording {
+            recorded_values.append(value)
+            recorded_rms.append(calculateRMS()) // Append current RMS
+        }
+        values.append(value)
+    }
+    
+    // Append multiple EMG values
+    func append(values: Array<CGFloat>) {
+        if recording {
+            self.recorded_values += values
+            for _ in values {
+                recorded_rms.append(calculateRMS()) // Append current RMS for each value
+            }
+        }
+        self.values += values
+    }
+    
+    // Append multiple EMG values from Float array
+    func append(values: Array<Float>) {
+        let valuesCGFloat = values.map { CGFloat($0) }
+        self.values += valuesCGFloat
+        if recording {
+            self.recorded_values += valuesCGFloat
+            for _ in valuesCGFloat {
+                recorded_rms.append(calculateRMS()) // Append current RMS for each value
+            }
+        }
+    }
+    
+    // Enable dummy data for testing
+    func enableDummyData() -> emgGraph {
+        _ = Timer.scheduledTimer(
+            withTimeInterval: 0.001,
+            repeats: true
+        ) { _ in self.append(value: CGFloat.random(in: 0.0...1.0))
+            if self.values.count > 5000 { self.values = Array(self.values.prefix(2000)) }
+        }
+        return self
+    }
+    
+    // Helper to calculate current RMS value
+    func calculateRMS() -> CGFloat {
+        guard !values.isEmpty else { return 0.0 }
+        let squaredSum = values.reduce(0.0) { $0 + $1 * $1 }
+        return sqrt(squaredSum / CGFloat(values.count))
+    }
+}
