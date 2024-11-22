@@ -20,6 +20,11 @@ class BLEManager: NSObject, ObservableObject, CBCentralManagerDelegate {
     var emg: emgGraph
     var dummyTimer: Timer? // Timer for dummy data
 
+    // RMS Buffer and Calculation
+    private var emgBuffer: [Float] = []
+    private let windowSize = 16 // 128 ms at 8 Hz
+    @Published var currentRMS: Float = 0.0 // Published to update UI or graph
+
     init(emg: emgGraph) {
         self.emg = emg
         super.init()
@@ -59,18 +64,42 @@ class BLEManager: NSObject, ObservableObject, CBCentralManagerDelegate {
         peripheral.discoverServices(nil)
     }
 
-    // Dummy Data Logic
+    // Dummy data
     func startDummyData() {
         stopDummyData() // Stop any existing dummy timer
         dummyTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { _ in
             let dummyData = (0..<10).map { _ in Float.random(in: 0.0...1.0) }
             self.emg.append(values: dummyData) // Append dummy data to emgGraph
+            self.updateRMS(with: dummyData)   // Update RMS with dummy data
         }
     }
 
     func stopDummyData() {
         dummyTimer?.invalidate()
         dummyTimer = nil
+    }
+
+    // RMS calculations
+    func calculateRMS(from samples: [Float]) -> Float {
+        guard !samples.isEmpty else { return 0.0 }
+        let squaredSum = samples.reduce(0.0) { $0 + $1 * $1 }
+        return sqrt(squaredSum / Float(samples.count))
+    }
+
+    func updateRMS(with newValues: [Float]) {
+        emgBuffer.append(contentsOf: newValues)
+        
+        // Ensure the buffer doesn't exceed the window size
+        if emgBuffer.count > windowSize {
+            emgBuffer.removeFirst(emgBuffer.count - windowSize)
+        }
+
+        // Calculate RMS if buffer has enough samples
+        if emgBuffer.count == windowSize {
+            currentRMS = calculateRMS(from: emgBuffer)
+            print("RMS Value: \(currentRMS)")
+            // Optionally update UI or pass this value elsewhere
+        }
     }
 }
 
@@ -101,7 +130,8 @@ extension BLEManager: CBPeripheralDelegate {
                 graphData[i / 2] = Float(byteArray[i - 1]) + Float(byteArray[i]) * 256.0
                 graphData[i / 2] /= 4096.0
             }
-            emg.append(values: graphData)
+            emg.append(values: graphData) // Append to EMG graph
+            updateRMS(with: graphData)    // Update RMS with new EMG data
         default:
             print("Unhandled characteristic UUID: \(characteristic.uuid)")
         }
