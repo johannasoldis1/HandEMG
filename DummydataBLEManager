@@ -24,7 +24,7 @@ class BLEManager: NSObject, ObservableObject, CBCentralManagerDelegate {
     private var emgBuffer: [Float] = []
     private let windowSize = 16 // 128 ms at 8 Hz
     @Published var currentRMS: Float = 0.0 // Published to update UI or graph
-
+    @Published var rmsHistory: [Float] = [] // Store historical RMS values
     init(emg: emgGraph) {
         self.emg = emg
         super.init()
@@ -78,27 +78,29 @@ class BLEManager: NSObject, ObservableObject, CBCentralManagerDelegate {
         dummyTimer?.invalidate()
         dummyTimer = nil
     }
-
     // RMS calculations
     func calculateRMS(from samples: [Float]) -> Float {
         guard !samples.isEmpty else { return 0.0 }
         let squaredSum = samples.reduce(0.0) { $0 + $1 * $1 }
         return sqrt(squaredSum / Float(samples.count))
     }
-
     func updateRMS(with newValues: [Float]) {
         emgBuffer.append(contentsOf: newValues)
         
-        // Ensure the buffer doesn't exceed the window size
         if emgBuffer.count > windowSize {
             emgBuffer.removeFirst(emgBuffer.count - windowSize)
         }
 
-        // Calculate RMS if buffer has enough samples
         if emgBuffer.count == windowSize {
             currentRMS = calculateRMS(from: emgBuffer)
+            rmsHistory.append(currentRMS)
+            
+            // Keep rmsHistory within a reasonable size (e.g., last 100 values)
+            if rmsHistory.count > 100 {
+                rmsHistory.removeFirst(rmsHistory.count - 100)
+            }
+            
             print("RMS Value: \(currentRMS)")
-            // Optionally update UI or pass this value elsewhere
         }
     }
 }
