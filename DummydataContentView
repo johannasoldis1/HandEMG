@@ -17,8 +17,8 @@ struct ContentView: View {
                     let height = UIScreen.main.bounds.height / 3
                     let width = UIScreen.main.bounds.width
                     let firstSample = { () -> Int in
-                        if graph.values.count > 1000 {
-                            return graph.values.count - 1000
+                        if graph.values.count > 200 {
+                            return graph.values.count - 200
                         } else {
                             return 0
                         }
