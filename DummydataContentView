@@ -9,12 +9,14 @@ struct ContentView: View {
     @State private var isFakeDataEnabled = false // State for toggle control
 
     var body: some View {
-        VStack {
-            // Graph visualization
-            ZStack {
-                // EMG Graph
+        VStack(spacing: 10) { // Adjusted spacing for the entire VStack
+            // Raw EMG Graph
+            VStack {
+                Text("Raw EMG Data")
+                    .font(.headline)
+                
                 Path { path in
-                    let height = UIScreen.main.bounds.height / 3
+                    let height = UIScreen.main.bounds.height / 6 // Smaller height
                     let width = UIScreen.main.bounds.width
                     let firstSample = { () -> Int in
                         if graph.values.count > 50 {
@@ -24,8 +26,8 @@ struct ContentView: View {
                         }
                     }
                     let cutGraph = graph.values[firstSample()..<graph.values.count]
-                    path.move(to: CGPoint(x: 0.0, y: 0.0))
-
+                    path.move(to: CGPoint(x: 0.0, y: height))
+                    
                     cutGraph.enumerated().forEach { index, item in
                         path.addLine(to: CGPoint(
                             x: width * CGFloat(index) / (CGFloat(cutGraph.count) - 1.0),
@@ -34,22 +36,41 @@ struct ContentView: View {
                     }
                 }
                 .stroke(Color.blue, lineWidth: 1.5)
-
-                // RMS Line
-                Path { path in
-                    let height = UIScreen.main.bounds.height / 3
-                    let width = UIScreen.main.bounds.width
-                    let rmsY = height * (1.0 - CGFloat(BLE.currentRMS)) // Scale and invert RMS value
-                    path.move(to: CGPoint(x: 0, y: rmsY))
-                    path.addLine(to: CGPoint(x: width, y: rmsY)) // Draw horizontal line
-                }
-                .stroke(Color.red, style: StrokeStyle(lineWidth: 1.5, dash: [5, 3])) // Dashed line
             }
+            .frame(height: 150) // Set fixed frame height
 
-            // Text to see the RMS values
+            // RMS Graph
+            VStack {
+                Text("RMS Data")
+                    .font(.headline)
+                
+                Path { path in
+                    let height = UIScreen.main.bounds.height / 8 // Smaller height
+                    let width = UIScreen.main.bounds.width
+                    let history = BLE.rmsHistory
+                    
+                    guard !history.isEmpty else { return }
+                    
+                    let startX = CGFloat(0)
+                    let stepX = width / CGFloat(history.count - 1)
+                    
+                    path.move(to: CGPoint(x: startX, y: height))
+                    
+                    for (index, value) in history.enumerated() {
+                        let x = startX + CGFloat(index) * stepX
+                        let y = height * (1.0 - CGFloat(value)) // Invert to fit graph height
+                        path.addLine(to: CGPoint(x: x, y: y))
+                    }
+                }
+                .stroke(Color.red, lineWidth: 2.0)
+            }
+            .frame(height: 120) // Set fixed frame height
+
+            // Text to see the current RMS value
             Text("Current RMS: \(BLE.currentRMS, specifier: "%.2f")")
                 .font(.headline)
                 .foregroundColor(.red)
+                .padding()
 
             // Bluetooth device list
             Text("Connect to sensor")
@@ -65,9 +86,8 @@ struct ContentView: View {
                     Text(String(peripheral.rssi))
                 }
             }
-            .frame(height: 300)
-
-            Spacer()
+            .frame(height: 150) // Reduce height of the list
+            .padding(.bottom, 5) // Reduce padding below the list
 
             // Status display
             Text("STATUS")
@@ -79,8 +99,6 @@ struct ContentView: View {
                 Text("Bluetooth is NOT switched on")
                     .foregroundColor(.red)
             }
-
-            Spacer()
 
             // Buttons for Bluetooth scanning and recording
             HStack {
@@ -143,6 +161,7 @@ struct ContentView: View {
                 print(error.localizedDescription)
             }
         }
+        .padding(10) // Add some overall padding
     }
 }
 
