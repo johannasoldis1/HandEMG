@@ -9,7 +9,7 @@ struct ContentView: View {
     @State private var isFakeDataEnabled = false // State for toggle control
 
     var body: some View {
-        VStack(spacing: 10) { // Adjusted spacing for the entire VStack
+        VStack(spacing: 10) {
             // Raw EMG Graph
             VStack {
                 Text("Raw EMG Data")
@@ -17,8 +17,12 @@ struct ContentView: View {
                     .padding(.top, 30)
                 
                 Path { path in
-                    let height = UIScreen.main.bounds.height / 6 // Smaller height
+                    let height = UIScreen.main.bounds.height / 6
                     let width = UIScreen.main.bounds.width
+
+                    // Ensure valid data range
+                    guard graph.values.count > 1 else { return }
+
                     let firstSample = { () -> Int in
                         if graph.values.count > 50 {
                             return graph.values.count - 50
@@ -27,18 +31,20 @@ struct ContentView: View {
                         }
                     }
                     let cutGraph = graph.values[firstSample()..<graph.values.count]
-                    path.move(to: CGPoint(x: 0.0, y: height))
+
+                    // Start drawing at the first valid data point
+                    path.move(to: CGPoint(x: 0.0, y: height)) // * (1.0 -cutGraph.first!))
                     
                     cutGraph.enumerated().forEach { index, item in
                         path.addLine(to: CGPoint(
                             x: width * CGFloat(index) / (CGFloat(cutGraph.count) - 1.0),
-                            y: height * (1.0 - item) // Invert to fit graph height
+                            y: height * (1.0 - item)
                         ))
                     }
                 }
                 .stroke(Color.blue, lineWidth: 1.5)
             }
-            .frame(height: 150) // Set fixed frame height
+            .frame(height: 150)
 
             // RMS Graph
             VStack {
@@ -47,7 +53,7 @@ struct ContentView: View {
                     .padding(.top, 40)
                 
                 Path { path in
-                    let height = UIScreen.main.bounds.height / 8 // Smaller height
+                    let height = UIScreen.main.bounds.height / 8
                     let width = UIScreen.main.bounds.width
                     let history = BLE.rmsHistory
                     
@@ -66,7 +72,7 @@ struct ContentView: View {
                 }
                 .stroke(Color.red, lineWidth: 2.0)
             }
-            .frame(height: 120) // Set fixed frame height
+            .frame(height: 120)
 
             // Text to see the current RMS value
             Text("Current RMS: \(BLE.currentRMS, specifier: "%.2f")")
@@ -74,22 +80,47 @@ struct ContentView: View {
                 .foregroundColor(.red)
                 .padding()
 
-            // Bluetooth device list
-            Text("Connect to sensor")
-                .font(.title)
-                .frame(maxWidth: .infinity, alignment: .center)
-            List(BLE.BLEPeripherals) { peripheral in
-                HStack {
-                    Text(peripheral.name).onTapGesture {
-                        print(peripheral)
-                        BLE.connectSensor(p: peripheral)
+            if !BLE.isConnected {
+                // Show connection options only if not connected
+                VStack {
+                    Text("Connect to Sensor")
+                        .font(.title)
+                        .frame(maxWidth: .infinity, alignment: .center)
+
+                    List(BLE.BLEPeripherals) { peripheral in
+                        HStack {
+                            Text(peripheral.name).onTapGesture {
+                                print(peripheral)
+                                BLE.connectSensor(p: peripheral)
+                            }
+                            Spacer()
+                            Text(String(peripheral.rssi))
+                        }
                     }
-                    Spacer()
-                    Text(String(peripheral.rssi))
+                    .frame(height: 150)
+
+                    HStack {
+                        Button(action: {
+                            BLE.startScanning()
+                        }) {
+                            Text("Start Scanning")
+                        }
+                        .padding()
+
+                        Button(action: {
+                            BLE.stopScanning()
+                        }) {
+                            Text("Stop Scanning")
+                        }
+                        .padding()
+                    }
                 }
+            } else {
+                // Display a message when connected
+                Text("Connected to EMGBLE2!")
+                    .font(.headline)
+                    .foregroundColor(.green)
             }
-            .frame(height: 150) // Reduce height of the list
-            .padding(.bottom, 5) // Reduce padding below the list
 
             // Status display
             Text("STATUS")
@@ -163,7 +194,7 @@ struct ContentView: View {
                 print(error.localizedDescription)
             }
         }
-        .padding(10) // Add some overall padding
+        .padding(10)
     }
 }
 
@@ -197,3 +228,4 @@ struct TextFile: FileDocument {
         return FileWrapper(regularFileWithContents: data)
     }
 }
+
