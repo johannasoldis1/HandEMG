@@ -52,10 +52,21 @@ class BLEManager: NSObject, ObservableObject, CBCentralManagerDelegate {
     }
 
     func centralManager(_ central: CBCentralManager, didDiscover peripheral: CBPeripheral, advertisementData: [String: Any], rssi RSSI: NSNumber) {
+        // Extract the device name from advertisement data
         let peripheralName = advertisementData[CBAdvertisementDataLocalNameKey] as? String ?? "Unknown"
+    
+        // Only process devices with the name "EMGBLE2"
+        guard peripheralName == "EMGBLE2" else {
+            print("Skipping device: \(peripheralName)") // Log skipped devices
+            return
+        }
+    
+        // Add the matching device to the list of peripherals
         let newPeripheral = Peripheral(id: BLEPeripherals.count, name: peripheralName, rssi: RSSI.intValue)
         BLEPeripherals.append(newPeripheral)
         CBPeripherals.append(peripheral)
+    
+        print("Added device: \(peripheralName) with RSSI: \(RSSI.intValue)")
     }
 
     func centralManager(_ central: CBCentralManager, didConnect peripheral: CBPeripheral) {
