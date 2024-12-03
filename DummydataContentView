@@ -14,14 +14,11 @@ struct ContentView: View {
             VStack {
                 Text("Raw EMG Data")
                     .font(.headline)
-
+                    .padding(.top, 30)
+                
                 Path { path in
-                    let height = UIScreen.main.bounds.height / 6 // Adjusted height
+                    let height = UIScreen.main.bounds.height / 6 // Smaller height
                     let width = UIScreen.main.bounds.width
-
-                    // Ensure valid data range
-                    guard graph.values.count > 1 else { return }
-
                     let firstSample = { () -> Int in
                         if graph.values.count > 50 {
                             return graph.values.count - 50
@@ -30,10 +27,8 @@ struct ContentView: View {
                         }
                     }
                     let cutGraph = graph.values[firstSample()..<graph.values.count]
-
-                    // Start drawing at the first valid data point
-                    path.move(to: CGPoint(x: 0.0, y: height * (1.0 - cutGraph.first!)))
-    
+                    path.move(to: CGPoint(x: 0.0, y: height))
+                    
                     cutGraph.enumerated().forEach { index, item in
                         path.addLine(to: CGPoint(
                             x: width * CGFloat(index) / (CGFloat(cutGraph.count) - 1.0),
@@ -49,21 +44,23 @@ struct ContentView: View {
             VStack {
                 Text("RMS Data")
                     .font(.headline)
+                    .padding(.top, 40)
                 
                 Path { path in
-                    let height = UIScreen.main.bounds.height / 8 // Adjusted height
+                    let height = UIScreen.main.bounds.height / 8 // Smaller height
                     let width = UIScreen.main.bounds.width
                     let history = BLE.rmsHistory
-
-                    // Ensure valid data range
-                    guard history.count > 1 else { return }
-
-                    // Start drawing at the first valid data point
-                    path.move(to: CGPoint(x: 0.0, y: height * (1.0 - CGFloat(history.first!))))
-
-                    history.enumerated().forEach { index, value in
-                        let x = width * CGFloat(index) / CGFloat(history.count - 1)
-                        let y = height * (1.0 - CGFloat(value))
+                    
+                    guard !history.isEmpty else { return }
+                    
+                    let startX = CGFloat(0)
+                    let stepX = width / CGFloat(history.count - 1)
+                    
+                    path.move(to: CGPoint(x: startX, y: height))
+                    
+                    for (index, value) in history.enumerated() {
+                        let x = startX + CGFloat(index) * stepX
+                        let y = height * (1.0 - CGFloat(value)) // Invert to fit graph height
                         path.addLine(to: CGPoint(x: x, y: y))
                     }
                 }
