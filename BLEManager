@@ -1,11 +1,3 @@
-// BLEManager
-//
-//  File.swift
-//  EMG-ble-kth
-//
-//  Created by Linus Remahl on 2021-11-01.
-//
-
 import Foundation
 import CoreBluetooth
 
@@ -18,139 +10,172 @@ struct Peripheral: Identifiable {
 class BLEManager: NSObject, ObservableObject, CBCentralManagerDelegate {
     var myCentral: CBCentralManager!
     @Published var BLEisOn = false
-    @Published var isConnected = false
     @Published var BLEPeripherals = [Peripheral]()
+    @Published var isConnected = false // Add this property to track connection status
     var CBPeripherals = [CBPeripheral]()
-    var emg:emgGraph!
+    var emg: emgGraph
     
-    init(emg:emgGraph) {
-        super.init()
- 
-        myCentral = CBCentralManager(delegate: self, queue: nil)
-        myCentral.delegate = self
-        
+    // RMS Buffer and Calculation
+    private var emgBuffer: [Float] = []
+    private let windowSize = 16 // 128 ms at 8 Hz
+    @Published var currentRMS: Float = 0.0 // Published to update UI or graph
+    @Published var rmsHistory: [Float] = [] // Store historical RMS values
+    private let dataQueue = DispatchQueue(label: "com.emg.ble.data")
+    
+    init(emg: emgGraph) {
         self.emg = emg
-        
+        super.init()
+        myCentral = CBCentralManager(delegate: self, queue: nil)
     }
     
-    override init() {
-                super.init()
-         
-                myCentral = CBCentralManager(delegate: self, queue: nil)
-                myCentral.delegate = self
-            }
     func centralManagerDidUpdateState(_ central: CBCentralManager) {
-             if central.state == .poweredOn {
-                 BLEisOn = true
-             }
-             else {
-                 BLEisOn = false
-             }
-        }
-    
-    func centralManager(_ central: CBCentralManager, didDiscover peripheral: CBPeripheral, advertisementData: [String : Any], rssi RSSI: NSNumber) {
-        var peripheralName: String!
-           
-        if let name = advertisementData[CBAdvertisementDataLocalNameKey] as? String {
-            peripheralName = name
-        }
-        else {
-            peripheralName = "Unknown"
-        }
-           
-        let newPeripheral = Peripheral(id: BLEPeripherals.count, name: peripheralName, rssi: RSSI.intValue)
-        print(newPeripheral)
-        BLEPeripherals.append(newPeripheral)
-        CBPeripherals.append(peripheral)
+        BLEisOn = (central.state == .poweredOn)
     }
-        
+    
+    func checkBluetoothPermissions() {
+        switch myCentral.authorization {
+        case .allowedAlways:
+            print("Bluetooth is allowed")
+        case .restricted, .denied:
+            print("Bluetooth access denied")
+        default:
+            print("Bluetooth authorization pending")
+        }
+    }
     func startScanning() {
-        //let emgServiceCBUUID = CBUUID(string: "4028F84C-05C0-4181-843E-BDBEE6E1030D")
-        print("startScanning")
+        guard !isConnected else {
+            print("Already connected, skipping scanning.")
+            return
+        }
+        print("Start Scanning")
         BLEPeripherals.removeAll()
         CBPeripherals.removeAll()
-        //myCentral.scanForPeripherals(withServices: [emgServiceCBUUID], options: nil)
         myCentral.scanForPeripherals(withServices: nil)
     }
-        
+    
     func stopScanning() {
-        print("stopScanning")
+        print("Stop Scanning")
         myCentral.stopScan()
     }
     
-    func connectSensor(p:Peripheral){
+    func connectSensor(p: Peripheral) {
+        guard p.id < CBPeripherals.count else {
+            print("Invalid peripheral ID")
+            return
+        }
         myCentral.connect(CBPeripherals[p.id])
     }
     
+    func centralManager(_ central: CBCentralManager, didDiscover peripheral: CBPeripheral, advertisementData: [String: Any], rssi RSSI: NSNumber) {
+        let peripheralName = advertisementData[CBAdvertisementDataLocalNameKey] as? String ?? "Unknown"
+        
+        let targetDeviceName = "EMGBLE2" // Could be passed as a parameter
+        guard peripheralName == targetDeviceName else {
+            print("Skipping device: \(peripheralName)") // Log skipped devices
+            return
+        }
+        
+        let newPeripheral = Peripheral(id: BLEPeripherals.count, name: peripheralName, rssi: RSSI.intValue)
+        BLEPeripherals.append(newPeripheral)
+        CBPeripherals.append(peripheral)
+        
+        print("Added device: \(peripheralName) with RSSI: \(RSSI.intValue)")
+    }
     func centralManager(_ central: CBCentralManager, didConnect peripheral: CBPeripheral) {
-        print(peripheral)
-        print("Connected!")
+        print("Connected to \(peripheral.name ?? "Unknown Device")")
+        isConnected = true // Update connection status
+        myCentral.stopScan() // Stop scanning when connected
         peripheral.delegate = self
         peripheral.discoverServices(nil)
-        
     }
     
-}
+    func centralManager(_ central: CBCentralManager, didDisconnectPeripheral peripheral: CBPeripheral, error: Error?) {
+        print("Disconnected from \(peripheral.name ?? "Unknown Device")")
+        isConnected = false // Update connection status
+    }
+    
+    // RMS calculations
+    func calculateRMS(from samples: [Float]) -> Float {
+        guard !samples.isEmpty else { return 0.0 }
+        let mean = samples.reduce(0.0, +) / Float(samples.count)
+        let centeredSamples = samples.map { $0 - mean }
+        let squaredSum = centeredSamples.reduce(0.0) { $0 + $1 * $1 }
+        return sqrt(squaredSum / Float(centeredSamples.count))
+    }
+    
+    func updateRMS(with newValues: [Float]) {
+         dataQueue.async {
+             self.emgBuffer.append(contentsOf: newValues)
 
-extension BLEManager:CBPeripheralDelegate {
-    
-    
+             if self.emgBuffer.count > self.windowSize {
+                 self.emgBuffer.removeFirst(self.emgBuffer.count - self.windowSize)
+             }
+
+             if self.emgBuffer.count == self.windowSize {
+                 let newRMS = self.calculateRMS(from: self.emgBuffer)
+                 DispatchQueue.main.async {
+                     self.currentRMS = newRMS
+                     self.rmsHistory.append(newRMS)
+
+                     // Keep rmsHistory within a reasonable size (e.g., last 100 values)
+                     if self.rmsHistory.count > 100 {
+                         self.rmsHistory.removeFirst(self.rmsHistory.count - 100)
+                     }
+
+                     print("RMS Value: \(newRMS)")
+                 }
+             }
+         }
+     }
+ }
+
+extension BLEManager: CBPeripheralDelegate {
     func peripheral(_ peripheral: CBPeripheral, didDiscoverServices error: Error?) {
+        if let error = error {
+            print("Error discovering services: \(error.localizedDescription)")
+            return
+        }
         guard let services = peripheral.services else { return }
         for service in services {
-            print(service)
             peripheral.discoverCharacteristics(nil, for: service)
         }
     }
-    
-    func peripheral(_ peripheral: CBPeripheral, didDiscoverCharacteristicsFor service: CBService,
-                    error: Error?) {
-      guard let characteristics = service.characteristics else { return }
 
-      for characteristic in characteristics {
-        if characteristic.properties.contains(.read) {
-            print("\(characteristic.uuid): properties contains .read")
+    func peripheral(_ peripheral: CBPeripheral, didDiscoverCharacteristicsFor service: CBService, error: Error?) {
+        if let error = error {
+            print("Error discovering characteristics: \(error.localizedDescription)")
+            return
         }
-        if characteristic.properties.contains(.notify) {
-            print("\(characteristic.uuid): properties contains .notify")
-            peripheral.setNotifyValue(true, for: characteristic)
+        guard let characteristics = service.characteristics else { return }
+        for characteristic in characteristics {
+            if characteristic.properties.contains(.notify) {
+                peripheral.setNotifyValue(true, for: characteristic)
+            }
         }
-        print(characteristic)
-          
-      }
-        
     }
-    
-    //This is the function which catches the data from the sensor
-    //Packs the data back into 16-bits, then scales from -1 to 1
-    //Does not care at what rate the data is coming in.
-    func peripheral(_ peripheral: CBPeripheral, didUpdateValueFor characteristic: CBCharacteristic,
-                    error: Error?) {
+
+    func peripheral(_ peripheral: CBPeripheral, didUpdateValueFor characteristic: CBCharacteristic, error: Error?) {
+        if let error = error {
+            print("Error updating value for characteristic: \(error.localizedDescription)")
+            return
+        }
+
         switch characteristic.uuid {
-        case CBUUID(string:"E399EFC0-79F9-4E08-82A8-F3AA1DC609F1"):
+        case CBUUID(string: "E399EFC0-79F9-4E08-82A8-F3AA1DC609F1"):
             guard let characteristicData = characteristic.value else { return }
             let byteArray = [UInt8](characteristicData)
-            var graphData: Array<Float> = [0.0, 0.0, 0.0, 0.0, 0.0,
-                                           0.0, 0.0, 0.0, 0.0, 0.0]
-            var toggle = false
-            var count = 0
-            for bt in byteArray {
-                if toggle && !graphData.isEmpty {
-                    graphData[count] += Float(bt) * 256.0
-                    graphData[count] /= 4096.0 // scales to 0 - 1
-                    graphData[count] = (graphData[count] - 0.5) * 2.0 // adjusts to -1 to 1
-                    count += 1
-                } else {
-                    graphData[count] = Float(bt)
-                }
-                toggle.toggle()
-            }
-            print(graphData)
-            emg.append(values: graphData)
+            guard byteArray.count % 2 == 0 else { return }
             
+            var graphData: [Float] = []
+            for i in stride(from: 0, to: byteArray.count, by: 2) {
+                let value = Float(byteArray[i]) + Float(byteArray[i + 1]) * 256.0
+                graphData.append(value / 4096.0)
+            }
+            
+            emg.append(values: graphData.map { CGFloat($0) }) // Convert and append to EMG graph
+            updateRMS(with: graphData) // Update RMS (if applicable)
         default:
-            print("Unhandled Characteristic UUID: \(characteristic.uuid)")
-      }
+            print("Unhandled characteristic UUID: \(characteristic.uuid)")
+        }
     }
-    
 }
