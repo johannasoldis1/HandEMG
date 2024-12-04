@@ -8,18 +8,18 @@ struct ContentView: View {
     @State var file_content: TextFile = TextFile(initialText: "")
 
     var body: some View {
-        VStack(spacing: 10) {
+        VStack(spacing: 1) { // Adjust spacing between sections
+
             // Raw EMG Graph
             VStack {
                 Text("Raw EMG Data")
                     .font(.headline)
-                    .padding(.top, 50) // Increased padding to avoid front camera obstruction
-                
+                    .padding(.top, 10)
+
                 Path { path in
                     let height = UIScreen.main.bounds.height / 6
                     let width = UIScreen.main.bounds.width
 
-                    // Ensure valid data range
                     guard graph.values.count > 1 else { return }
 
                     let firstSample = { () -> Int in
@@ -30,50 +30,55 @@ struct ContentView: View {
                         }
                     }
                     let cutGraph = graph.values[firstSample()..<graph.values.count]
+                    guard !cutGraph.isEmpty else { return }
+                    let midY = height / 2
 
-                    // Start drawing at the first valid data point
-                    path.move(to: CGPoint(x: 0.0, y: height)) // * (1.0 - cutGraph.first!))
-                    
+                    let startX = CGFloat(0)
+                    let startY = midY - (height / 2 * CGFloat(cutGraph.first ?? 0))
+                    path.move(to: CGPoint(x: startX, y: startY))
+
                     cutGraph.enumerated().forEach { index, item in
-                        path.addLine(to: CGPoint(
-                            x: width * CGFloat(index) / (CGFloat(cutGraph.count) - 1.0),
-                            y: height * (1.0 - item)
-                        ))
+                        path.addLine(
+                            to: CGPoint(
+                                x: width * CGFloat(index) / (CGFloat(cutGraph.count) - 1.0),
+                                y: midY - (height / 2 * CGFloat(item))
+                            )
+                        )
                     }
                 }
                 .stroke(Color.blue, lineWidth: 1.5)
+                .frame(height: 150)
             }
-            .frame(height: 150)
 
             // RMS Graph
             VStack {
                 Text("RMS Data")
                     .font(.headline)
-                    .padding(.top, 20)
-                
+                    .padding(.top, 10)
+
                 Path { path in
                     let height = UIScreen.main.bounds.height / 8
                     let width = UIScreen.main.bounds.width
                     let history = BLE.rmsHistory
-                    
+
                     guard !history.isEmpty else { return }
-                    
+                    let midY = height / 2
+
                     let startX = CGFloat(0)
-                    let stepX = width / CGFloat(history.count - 1)
-                    
-                    path.move(to: CGPoint(x: startX, y: height))
-                    
+                    let startY = midY - (height / 2 * CGFloat(history.first ?? 0))
+                    path.move(to: CGPoint(x: startX, y: startY))
+
                     for (index, value) in history.enumerated() {
-                        let x = startX + CGFloat(index) * stepX
-                        let y = height * (1.0 - CGFloat(value)) // Invert to fit graph height
+                        let x = startX + CGFloat(index) * (width / CGFloat(history.count - 1))
+                        let y = midY - (height / 2 * CGFloat(value))
                         path.addLine(to: CGPoint(x: x, y: y))
                     }
                 }
                 .stroke(Color.red, lineWidth: 2.0)
+                .frame(height: 120)
             }
-            .frame(height: 120)
 
-            // Text to see the current RMS value
+            // Current RMS Value
             Text("Current RMS: \(BLE.currentRMS, specifier: "%.2f")")
                 .font(.headline)
                 .foregroundColor(.red)
@@ -96,7 +101,7 @@ struct ContentView: View {
                             Text(String(peripheral.rssi))
                         }
                     }
-                    .frame(height: 150)
+                    .frame(height: 80)
                 }
             } else {
                 // Display a message when connected
@@ -105,7 +110,7 @@ struct ContentView: View {
                     .foregroundColor(.green)
             }
 
-            // Status display
+            // Status Display
             Text("STATUS")
                 .font(.headline)
             if BLE.BLEisOn {
@@ -118,33 +123,49 @@ struct ContentView: View {
 
             // Buttons for Bluetooth scanning and recording
             HStack {
-                VStack(spacing: 10) { // Vertically stacked scanning buttons on the left
+                VStack(spacing: 5) { // Vertically stacked scanning buttons
                     Button(action: {
                         BLE.startScanning()
                     }) {
                         Text("Start Scanning")
                     }
+                    .disabled(BLE.isConnected) // Disable if connected
+
                     Button(action: {
                         BLE.stopScanning()
                     }) {
                         Text("Stop Scanning")
                     }
+                    .disabled(!BLE.BLEisOn || BLE.isConnected) // Disable if Bluetooth is off or connected
                 }
                 .padding()
 
                 Spacer()
 
-                VStack(spacing: 10) { // Vertically stacked recording buttons on the right
+                VStack(spacing: 10) { // Vertically stacked recording buttons
                     Button(action: {
-                        graph.record()
+                        DispatchQueue.global(qos: .background).async {
+                            graph.record()
+                            DispatchQueue.main.async {
+                                print("Recording started.")
+                            }
+                        }
                     }) {
                         Text("Start Recording")
                     }
+
                     Button(action: {
-                        file_content.text = graph.stop_recording_and_save()
+                        DispatchQueue.global(qos: .background).async {
+                            let fileContent = graph.stop_recording_and_save()
+                            DispatchQueue.main.async {
+                                file_content.text = fileContent
+                                print("Recording stopped and saved.")
+                            }
+                        }
                     }) {
                         Text("Stop Recording")
                     }
+
                     Button(action: {
                         showingExporter = true
                     }) {
@@ -153,7 +174,6 @@ struct ContentView: View {
                 }
                 .padding()
             }
-
             Spacer()
         }
         .fileExporter(isPresented: $showingExporter, document: file_content, contentType: .commaSeparatedText, defaultFilename: "emg-data") { result in
@@ -165,16 +185,6 @@ struct ContentView: View {
             }
         }
         .padding(10)
-    }
-}
-
-struct ContentView_Previews: PreviewProvider {
-    static var previews: some View {
-        let graph = emgGraph(firstValues: Array(repeating: 0.5, count: 100)).enableDummyData()
-        let BLE = BLEManager(emg: graph)
-        BLE.startDummyData() // Enable dummy data in preview
-        return ContentView(graph: graph, BLE: BLE)
-            .previewInterfaceOrientation(.portrait)
     }
 }
 
