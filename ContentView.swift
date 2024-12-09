@@ -13,7 +13,7 @@ struct ContentView: View {
 
                 // Raw EMG Graph
                 VStack {
-                    Text("Raw EMG Data") // Amplitude?
+                    Text("Raw EMG Data")
                         .font(.headline)
                         .foregroundColor(.blue)
 
@@ -23,7 +23,7 @@ struct ContentView: View {
 
                         guard graph.values.count > 1 else { return }
 
-                        let firstSample = max(0, graph.values.count - 50)
+                        let firstSample = max(0, graph.values.count - 200) // Limit displayed samples to 200
                         let cutGraph = graph.values[firstSample..<graph.values.count]
                         let midY = height / 2
 
@@ -43,7 +43,7 @@ struct ContentView: View {
 
                 // 1-Second RMS Graph
                 VStack {
-                    Text("1-Second RMS Data") // Activity?
+                    Text("1-Second RMS Data")
                         .font(.headline)
                         .foregroundColor(.green)
 
@@ -52,12 +52,15 @@ struct ContentView: View {
                         let width = geometry.size.width
 
                         guard !graph.oneSecondRMSHistory.isEmpty else { return }
+
+                        // Smooth RMS data before plotting
+                        let smoothedRMS = smoothRMS(data: graph.oneSecondRMSHistory, windowSize: 5)
                         let midY = height / 2
 
-                        path.move(to: CGPoint(x: 0, y: midY - height / 2 * CGFloat(graph.oneSecondRMSHistory.first ?? 0)))
+                        path.move(to: CGPoint(x: 0, y: midY - height / 2 * CGFloat(smoothedRMS.first ?? 0)))
 
-                        for (index, value) in graph.oneSecondRMSHistory.enumerated() {
-                            let x = CGFloat(index) * width / CGFloat(graph.oneSecondRMSHistory.count - 1)
+                        for (index, value) in smoothedRMS.enumerated() {
+                            let x = CGFloat(index) * width / CGFloat(smoothedRMS.count - 1)
                             let y = midY - height / 2 * CGFloat(value)
                             path.addLine(to: CGPoint(x: x, y: y))
                         }
@@ -144,6 +147,22 @@ struct ContentView: View {
                     }
                     .padding()
                 }
+
+                // Additional Controls
+                HStack {
+                    Button("Reset Graphs") {
+                        graph.values.removeAll() // Fix applied: Now modifiable
+                        graph.oneSecondRMSHistory.removeAll()
+                    }
+                    .foregroundColor(.red)
+
+                    Spacer()
+
+                    Button("Refresh Graphs") {
+                        graph.objectWillChange.send()
+                    }
+                    .foregroundColor(.blue)
+                }
             }
             .padding(10)
             .fileExporter(isPresented: $showingExporter, document: file_content, contentType: .commaSeparatedText, defaultFilename: "emg-data") { result in
@@ -156,8 +175,18 @@ struct ContentView: View {
             }
         }
     }
-}
 
+    // Smoothing function for RMS data
+    private func smoothRMS(data: [CGFloat], windowSize: Int) -> [CGFloat] {
+        guard windowSize > 1 else { return data }
+        return data.enumerated().map { (index, _) in
+            let start = max(0, index - windowSize + 1)
+            let end = index + 1
+            let slice = data[start..<end]
+            return slice.reduce(0, +) / CGFloat(slice.count)
+        }
+    }
+}
 
 struct TextFile: FileDocument {
     static var readableContentTypes = [UTType.commaSeparatedText]
