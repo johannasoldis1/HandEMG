@@ -1,3 +1,8 @@
+//
+//  BLEManager.swift
+//  EMG-ble-kth
+//
+
 import Foundation
 import CoreBluetooth
 
@@ -11,16 +16,25 @@ class BLEManager: NSObject, ObservableObject, CBCentralManagerDelegate {
     var myCentral: CBCentralManager!
     @Published var BLEisOn = false
     @Published var BLEPeripherals = [Peripheral]()
-    @Published var isConnected = false // Add this property to track connection status
+    @Published var isConnected = false
     var CBPeripherals = [CBPeripheral]()
     var emg: emgGraph
     
-    // RMS Buffer and Calculation
+    // RMS Buffers and Calculation
     private var emgBuffer: [Float] = []
     private let windowSize = 16 // 128 ms at 8 Hz
-    @Published var currentRMS: Float = 0.0 // Published to update UI or graph
-    @Published var rmsHistory: [Float] = [] // Store historical RMS values
+    @Published var currentRMS: Float = 0.0
+    @Published var rmsHistory: [Float] = []
     private let dataQueue = DispatchQueue(label: "com.emg.ble.data")
+    
+    // 1-Second RMS and Maximum Calculation
+    private var shortTermRMSBuffer: [Float] = [] // Buffer for 0.1-second RMS values
+    private let shortTermRMSWindowSize = 10 // 10 x 0.1s = 1 second
+    private var maxRMSOverTime: Float = 0.0
+    private let maxRMSUpdateInterval: TimeInterval = 1.0
+    private var lastMaxRMSUpdateTime: Date = Date()
+    @Published var max1SecRMS: Float = 0.0
+    @Published var max1SecRMSHistory: [Float] = []
     
     init(emg: emgGraph) {
         self.emg = emg
@@ -29,7 +43,9 @@ class BLEManager: NSObject, ObservableObject, CBCentralManagerDelegate {
     }
     
     func centralManagerDidUpdateState(_ central: CBCentralManager) {
-        BLEisOn = (central.state == .poweredOn)
+        DispatchQueue.main.async {
+            self.BLEisOn = (central.state == .poweredOn)
+        }
     }
     
     func checkBluetoothPermissions() {
@@ -42,6 +58,7 @@ class BLEManager: NSObject, ObservableObject, CBCentralManagerDelegate {
             print("Bluetooth authorization pending")
         }
     }
+    
     func startScanning() {
         guard !isConnected else {
             print("Already connected, skipping scanning.")
@@ -68,66 +85,125 @@ class BLEManager: NSObject, ObservableObject, CBCentralManagerDelegate {
     
     func centralManager(_ central: CBCentralManager, didDiscover peripheral: CBPeripheral, advertisementData: [String: Any], rssi RSSI: NSNumber) {
         let peripheralName = advertisementData[CBAdvertisementDataLocalNameKey] as? String ?? "Unknown"
-        
-        let targetDeviceName = "EMGBLE2" // Could be passed as a parameter
+        let targetDeviceName = "EMGBLE2"
         guard peripheralName == targetDeviceName else {
-            print("Skipping device: \(peripheralName)") // Log skipped devices
+            print("Skipping device: \(peripheralName)")
             return
         }
         
         let newPeripheral = Peripheral(id: BLEPeripherals.count, name: peripheralName, rssi: RSSI.intValue)
-        BLEPeripherals.append(newPeripheral)
+        DispatchQueue.main.async {
+            self.BLEPeripherals.append(newPeripheral)
+        }
         CBPeripherals.append(peripheral)
         
         print("Added device: \(peripheralName) with RSSI: \(RSSI.intValue)")
     }
+    
     func centralManager(_ central: CBCentralManager, didConnect peripheral: CBPeripheral) {
         print("Connected to \(peripheral.name ?? "Unknown Device")")
-        isConnected = true // Update connection status
-        myCentral.stopScan() // Stop scanning when connected
+        DispatchQueue.main.async {
+            self.isConnected = true
+        }
+        myCentral.stopScan()
         peripheral.delegate = self
         peripheral.discoverServices(nil)
     }
     
     func centralManager(_ central: CBCentralManager, didDisconnectPeripheral peripheral: CBPeripheral, error: Error?) {
         print("Disconnected from \(peripheral.name ?? "Unknown Device")")
-        isConnected = false // Update connection status
+        DispatchQueue.main.async {
+            self.isConnected = false
+        }
     }
     
-    // RMS calculations
-    func calculateRMS(from samples: [Float]) -> Float {
-        guard !samples.isEmpty else { return 0.0 }
-        let mean = samples.reduce(0.0, +) / Float(samples.count)
-        let centeredSamples = samples.map { $0 - mean }
-        let squaredSum = centeredSamples.reduce(0.0) { $0 + $1 * $1 }
-        return sqrt(squaredSum / Float(centeredSamples.count))
+    // RMS calculations and updates
+    func processAndAppendEMGData(_ rawEMGData: [Float]) {
+        // Calculate mean and center the data
+        let mean = rawEMGData.reduce(0.0, +) / Float(rawEMGData.count)
+        let centeredData = rawEMGData.map { $0 - mean }
+        
+        DispatchQueue.main.async {
+            self.emg.append(values: centeredData.map { CGFloat($0) })
+        }
+        
+        // Proceed with RMS calculations
+        updateRMS(with: centeredData)
     }
     
     func updateRMS(with newValues: [Float]) {
-         dataQueue.async {
-             self.emgBuffer.append(contentsOf: newValues)
+        dataQueue.async {
+            self.emgBuffer.append(contentsOf: newValues)
+            
+            if self.emgBuffer.count > self.windowSize {
+                self.emgBuffer.removeFirst(self.emgBuffer.count - self.windowSize)
+            }
+            
+            if self.emgBuffer.count == self.windowSize {
+                let rms = self.calculateRMS(from: self.emgBuffer)
+                
+                DispatchQueue.main.async {
+                    self.currentRMS = rms
+                    self.rmsHistory.append(rms)
+                    if self.rmsHistory.count > 100 {
+                        self.rmsHistory.removeFirst()
+                    }
+                }
+                
+                // Update 1-second RMS and maximum RMS
+                self.updateMoving1SecRMS(fromShortTermRMS: rms)
+            }
+        }
+    }
+    
+    func calculateRMS(from samples: [Float]) -> Float {
+        guard !samples.isEmpty else { return 0.0 }
+        let squaredSum = samples.reduce(0.0) { $0 + $1 * $1 }
+        return sqrt(squaredSum / Float(samples.count))
+    }
+    
+    private func updateMoving1SecRMS(fromShortTermRMS newRMS: Float) {
+        // Add the new 0.1-second RMS value to the buffer
+        shortTermRMSBuffer.append(newRMS)
 
-             if self.emgBuffer.count > self.windowSize {
-                 self.emgBuffer.removeFirst(self.emgBuffer.count - self.windowSize)
-             }
+        // Maintain a buffer size of 10 (representing 1 second of data)
+        if shortTermRMSBuffer.count > shortTermRMSWindowSize {
+            shortTermRMSBuffer.removeFirst()
+        }
 
-             if self.emgBuffer.count == self.windowSize {
-                 let newRMS = self.calculateRMS(from: self.emgBuffer)
-                 DispatchQueue.main.async {
-                     self.currentRMS = newRMS
-                     self.rmsHistory.append(newRMS)
+        // Calculate the 1-second RMS using a moving average if the buffer is full
+        if shortTermRMSBuffer.count == shortTermRMSWindowSize {
+            let movingAverageRMS = shortTermRMSBuffer.reduce(0.0) { $0 + $1 } / Float(shortTermRMSBuffer.count)
 
-                     // Keep rmsHistory within a reasonable size (e.g., last 100 values)
-                     if self.rmsHistory.count > 100 {
-                         self.rmsHistory.removeFirst(self.rmsHistory.count - 100)
-                     }
+            DispatchQueue.main.async {
+                // Update the 1-second RMS history
+                self.max1SecRMSHistory.append(movingAverageRMS)
+                if self.max1SecRMSHistory.count > 100 {
+                    self.max1SecRMSHistory.removeFirst()
+                }
+            }
 
-                     print("RMS Value: \(newRMS)")
-                 }
-             }
-         }
-     }
- }
+            // Update the maximum RMS for the last 1-second interval
+            self.updateMaxRMS(movingAverageRMS)
+        }
+    }
+
+    private func updateMaxRMS(_ oneSecondRMS: Float) {
+        let currentTime = Date()
+
+        // Update rolling maximum RMS
+        maxRMSOverTime = max(maxRMSOverTime, oneSecondRMS)
+
+        // Update the displayed max RMS every 1 second
+        if currentTime.timeIntervalSince(lastMaxRMSUpdateTime) >= maxRMSUpdateInterval {
+            DispatchQueue.main.async {
+                self.max1SecRMS = self.maxRMSOverTime
+            }
+            maxRMSOverTime = 0.0 // Reset for the next interval
+            lastMaxRMSUpdateTime = currentTime
+        }
+    }
+}
 
 extension BLEManager: CBPeripheralDelegate {
     func peripheral(_ peripheral: CBPeripheral, didDiscoverServices error: Error?) {
@@ -165,15 +241,14 @@ extension BLEManager: CBPeripheralDelegate {
             guard let characteristicData = characteristic.value else { return }
             let byteArray = [UInt8](characteristicData)
             guard byteArray.count % 2 == 0 else { return }
-            
+
             var graphData: [Float] = []
             for i in stride(from: 0, to: byteArray.count, by: 2) {
                 let value = Float(byteArray[i]) + Float(byteArray[i + 1]) * 256.0
                 graphData.append(value / 4096.0)
             }
-            
-            emg.append(values: graphData.map { CGFloat($0) }) // Convert and append to EMG graph
-            updateRMS(with: graphData) // Update RMS (if applicable)
+
+            processAndAppendEMGData(graphData)
         default:
             print("Unhandled characteristic UUID: \(characteristic.uuid)")
         }
