@@ -23,7 +23,7 @@ struct ContentView: View {
 
                         guard graph.values.count > 1 else { return }
 
-                        let firstSample = max(0, graph.values.count - 200) // Limit displayed samples to 200
+                        let firstSample = max(0, graph.values.count - 200)
                         let cutGraph = graph.values[firstSample..<graph.values.count]
                         let midY = height / 2
 
@@ -41,6 +41,32 @@ struct ContentView: View {
                     .frame(height: geometry.size.height / 8)
                 }
 
+                // New RMS Graph
+                VStack {
+                    Text("RMS Data")
+                        .font(.headline)
+                        .foregroundColor(.red)
+                    
+                    Path { path in
+                        let height = geometry.size.height / 8
+                        let width = geometry.size.width
+                        let history = BLE.rmsHistory
+                        
+                        guard !history.isEmpty else { return }
+                        let midY = height / 2
+                        
+                        path.move(to: CGPoint(x: 0, y: midY - height / 2 * CGFloat(history.first ?? 0)))
+                        
+                        for (index, value) in history.enumerated() {
+                            let x = CGFloat(index) * width / CGFloat(history.count - 1)
+                            let y = midY - height / 2 * CGFloat(value)
+                            path.addLine(to: CGPoint(x: x, y: y))
+                        }
+                    }
+                    .stroke(Color.red, lineWidth: 2.0)
+                    .frame(height: geometry.size.height / 8)
+                }
+
                 // 1-Second RMS Graph
                 VStack {
                     Text("1-Second RMS Data")
@@ -53,7 +79,6 @@ struct ContentView: View {
 
                         guard !graph.oneSecondRMSHistory.isEmpty else { return }
 
-                        // Smooth RMS data before plotting
                         let smoothedRMS = smoothRMS(data: graph.oneSecondRMSHistory, windowSize: 5)
                         let midY = height / 2
 
@@ -68,11 +93,7 @@ struct ContentView: View {
                     .stroke(Color.green, lineWidth: 2.0)
                     .frame(height: geometry.size.height / 12)
                 }
-
-                // Current 1-Second RMS Value
-                Text("Current 1-Second RMS: \(graph.oneSecondRMSHistory.last ?? 0.0, specifier: "%.2f")")
-                    .font(.system(size: 14))
-                    .foregroundColor(.green)
+                .padding(.top, 10)
 
                 // Connect to Sensor Section
                 if !BLE.isConnected {
@@ -176,7 +197,6 @@ struct ContentView: View {
         }
     }
 
-    // Smoothing function for RMS data
     private func smoothRMS(data: [CGFloat], windowSize: Int) -> [CGFloat] {
         guard windowSize > 1 else { return data }
         return data.enumerated().map { (index, _) in
@@ -208,4 +228,3 @@ struct TextFile: FileDocument {
         return FileWrapper(regularFileWithContents: data)
     }
 }
-
