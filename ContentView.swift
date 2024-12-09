@@ -13,8 +13,9 @@ struct ContentView: View {
 
                 // Raw EMG Graph
                 VStack {
-                    Text("Raw EMG Data")
+                    Text("Raw EMG Data") // Amplitude?
                         .font(.headline)
+                        .foregroundColor(.blue)
 
                     Path { path in
                         let height = geometry.size.height / 8
@@ -42,20 +43,21 @@ struct ContentView: View {
 
                 // 1-Second RMS Graph
                 VStack {
-                    Text("1-Second RMS Data")
+                    Text("1-Second RMS Data") // Activity?
                         .font(.headline)
+                        .foregroundColor(.green)
 
                     Path { path in
                         let height = geometry.size.height / 12
                         let width = geometry.size.width
 
-                        guard !BLE.max1SecRMSHistory.isEmpty else { return }
+                        guard !graph.oneSecondRMSHistory.isEmpty else { return }
                         let midY = height / 2
 
-                        path.move(to: CGPoint(x: 0, y: midY - height / 2 * CGFloat(BLE.max1SecRMSHistory.first ?? 0)))
+                        path.move(to: CGPoint(x: 0, y: midY - height / 2 * CGFloat(graph.oneSecondRMSHistory.first ?? 0)))
 
-                        for (index, value) in BLE.max1SecRMSHistory.enumerated() {
-                            let x = CGFloat(index) * width / CGFloat(BLE.max1SecRMSHistory.count - 1)
+                        for (index, value) in graph.oneSecondRMSHistory.enumerated() {
+                            let x = CGFloat(index) * width / CGFloat(graph.oneSecondRMSHistory.count - 1)
                             let y = midY - height / 2 * CGFloat(value)
                             path.addLine(to: CGPoint(x: x, y: y))
                         }
@@ -65,7 +67,7 @@ struct ContentView: View {
                 }
 
                 // Current 1-Second RMS Value
-                Text("1-Second RMS: \(BLE.max1SecRMS, specifier: "%.2f")")
+                Text("Current 1-Second RMS: \(graph.oneSecondRMSHistory.last ?? 0.0, specifier: "%.2f")")
                     .font(.system(size: 14))
                     .foregroundColor(.green)
 
@@ -155,6 +157,7 @@ struct ContentView: View {
         }
     }
 }
+
 
 struct TextFile: FileDocument {
     static var readableContentTypes = [UTType.commaSeparatedText]
