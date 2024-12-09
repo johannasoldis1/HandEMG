@@ -2,7 +2,7 @@ import CoreGraphics
 import SwiftUI
 
 class emgGraph: ObservableObject {
-    @Published private(set) var values: [CGFloat] = [] // Raw EMG values for display
+    @Published var values: [CGFloat] = [] // Raw EMG values for display (no private(set))
     @Published var oneSecondRMSHistory: [CGFloat] = [] // 1-second RMS values for display
 
     var recorded_values: [CGFloat] = [] // Recorded raw EMG values for export
@@ -36,7 +36,7 @@ class emgGraph: ObservableObject {
         shortTermRMSBuffer.removeAll()
         longTermRMSBuffer.removeAll()
     }
-    
+
     func stop_recording_and_save() -> String {
         recording = false
         let sampleInterval = 1.0 // 1-second intervals
@@ -152,7 +152,7 @@ class emgGraph: ObservableObject {
             updateMax10SecRMS(oneSecondRMS)
         }
     }
-    
+
     private func updateMax10SecRMS(_ oneSecondRMS: CGFloat) {
         longTermRMSBuffer.append(oneSecondRMS)
 
@@ -185,6 +185,4 @@ class emgGraph: ObservableObject {
         }
     }
 }
-
-
 
