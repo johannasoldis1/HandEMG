@@ -2,12 +2,14 @@ import CoreGraphics
 import SwiftUI
 
 class emgGraph: ObservableObject {
-    @Published var values: [CGFloat] = [] // Raw EMG values for display (no private(set))
+    @Published var values: [CGFloat] = [] // Raw EMG values for display
     @Published var oneSecondRMSHistory: [CGFloat] = [] // 1-second RMS values for display
+    @Published var shortTermRMSHistory: [CGFloat] = [] // Short-term RMS values for display
+    @Published var max10SecRMSHistory: [CGFloat] = [] // Max RMS values for the last 10 seconds
 
     var recorded_values: [CGFloat] = [] // Recorded raw EMG values for export
     var recorded_rms: [CGFloat] = [] // 1-second RMS values for export
-    var max10SecRMSHistory: [CGFloat] = [] // Max RMS values for the last 10 seconds
+    var shortTermRMSValues: [Float] = [] // Short-term RMS values for export
     var timestamps: [CFTimeInterval] = [] // Timestamps for each recorded value
 
     var recording: Bool = false // Recording state
@@ -30,37 +32,44 @@ class emgGraph: ObservableObject {
         start_time = CACurrentMediaTime()
         recorded_values.removeAll()
         recorded_rms.removeAll()
+        shortTermRMSValues.removeAll()
         max10SecRMSHistory.removeAll()
         timestamps.removeAll()
         buffer.removeAll()
         shortTermRMSBuffer.removeAll()
         longTermRMSBuffer.removeAll()
     }
-
+    
     func stop_recording_and_save() -> String {
         recording = false
-        let sampleInterval = 1.0 // 1-second intervals
-
-        // Calculate centered raw data
-        let mean = recorded_values.reduce(0.0, +) / CGFloat(recorded_values.count)
-        let centeredValues = recorded_values.map { $0 - mean }
+        let sampleInterval = 1.0 / Double(sampleRate) // Adjusted for finer intervals
 
         // Header for CSV
-        var dataset = "Time,1-Second RMS,Max RMS (Every 10th Interval)\n"
+        var dataset = "Time,EMG (Raw Data),Short-Term RMS (0.1s),1-Second RMS,Max RMS (10s)\n"
 
-        // Export every 1-second interval
-        for (index, rmsValue) in recorded_rms.enumerated() {
+        // Export raw EMG data, short-term RMS, 1-second RMS, and max RMS
+        for (index, rawValue) in recorded_values.enumerated() {
             let time = Double(index) * sampleInterval
+            let shortTermRMS = index < shortTermRMSValues.count ? shortTermRMSValues[index] : 0.0
+            var oneSecondRMS: Float = 0.0
             var maxRMSString = ""
 
-            // For every 10th interval, calculate and display the max RMS for the past 10 seconds
-            if index % 10 == 0 && index > 0 {
-                let startIndex = max(0, index - 9)
-                let maxRMS = recorded_rms[startIndex...index].max() ?? 0.0
-                maxRMSString = "\(maxRMS)"
+            // 1-Second RMS: Update every 10 samples
+            if index % sampleRate == 0 && index / sampleRate < recorded_rms.count {
+                oneSecondRMS = Float(recorded_rms[index / sampleRate])
             }
 
-            dataset += "\(time),\(rmsValue),\(maxRMSString)\n"
+            // Max RMS over 10 seconds: Update every 10 seconds
+            if index % (sampleRate * 10) == 0 && index > 0 {
+                let startIndex = max(0, index - (sampleRate * 10 - 1)) / sampleRate
+                let endIndex = index / sampleRate
+                if startIndex < recorded_rms.count && endIndex < recorded_rms.count {
+                    let maxRMS = recorded_rms[startIndex...endIndex].max() ?? 0.0
+                    maxRMSString = "\(maxRMS)"
+                }
+            }
+
+            dataset += "\(time),\(rawValue),\(shortTermRMS),\(oneSecondRMS),\(maxRMSString)\n"
         }
 
         // Save dataset to file
@@ -103,14 +112,12 @@ class emgGraph: ObservableObject {
                 if buffer.count == sampleRate {
                     let rmsValue = calculateRMS(for: buffer)
                     DispatchQueue.main.async {
-                        self.recorded_rms.append(rmsValue)
+                        self.shortTermRMSValues.append(Float(rmsValue)) // Append short-term RMS
+                        self.shortTermRMSHistory.append(rmsValue) // Update display history
+                        self.recorded_rms.append(rmsValue) // Append 1-second RMS
                         self.updateGraphDisplay(for: values, rmsValue: rmsValue)
                     }
                     updateMoving1SecRMS(fromShortTermRMS: Float(rmsValue))
-                } else {
-                    DispatchQueue.main.async {
-                        self.recorded_rms.append(0.0)
-                    }
                 }
             }
         }
@@ -173,16 +180,13 @@ class emgGraph: ObservableObject {
     }
 
     private func updateGraphDisplay(for rawValues: [CGFloat], rmsValue: CGFloat) {
-        // Ensure raw data and RMS values are updated together for consistent display
         self.values.append(contentsOf: rawValues)
         if self.values.count > 1000 {
             self.values.removeFirst(self.values.count - 1000)
         }
-        
-        self.oneSecondRMSHistory.append(rmsValue)
-        if self.oneSecondRMSHistory.count > 100 {
-            self.oneSecondRMSHistory.removeFirst()
+        self.shortTermRMSHistory.append(rmsValue)
+        if self.shortTermRMSHistory.count > 100 {
+            self.shortTermRMSHistory.removeFirst()
         }
     }
 }
-
