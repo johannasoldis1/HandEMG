@@ -21,17 +21,15 @@ class BLEManager: NSObject, ObservableObject, CBCentralManagerDelegate {
     var emg: emgGraph
 
     // RMS Buffers and Calculation
-    private var emgBuffer: [Float] = []
-    private let windowSize = 16 // 128 ms at 8 Hz
-    @Published var currentRMS: Float = 0.0
-    @Published var rmsHistory: [Float] = []
-    private var tenSecondRMSBuffer: [Float] = []
-    private let tenSecondSampleSize = 78 // 10 seconds of short-term RMS (~128ms intervals)
-    private let dataQueue = DispatchQueue(label: "com.emg.ble.data")
+    private var emgBuffer: [Float] = [] // Buffer for 0.1-second RMS calculation
+    private let windowSize = 8 // 0.1 seconds at 8 Hz sampling rate
+    @Published var currentRMS: Float = 0.0 // Latest 0.1-second RMS
+    @Published var rmsHistory: [Float] = [] // Store historical 0.1-second RMS values
 
     // 1-Second RMS Calculation
-    private var shortTermRMSBuffer: [Float] = [] // Buffer for 0.1-second RMS values
+    private var shortTermRMSBuffer: [Float] = [] // Buffer for 1-second RMS aggregation
     private let shortTermRMSWindowSize = 10 // 10 x 0.1s = 1 second
+    private let dataQueue = DispatchQueue(label: "com.emg.ble.data")
 
     init(emg: emgGraph) {
         self.emg = emg
@@ -114,7 +112,7 @@ class BLEManager: NSObject, ObservableObject, CBCentralManagerDelegate {
         }
     }
 
-    // RMS calculations and updates
+    // RMS Calculations and Updates
     func processAndAppendEMGData(_ rawEMGData: [Float]) {
         // Calculate mean and center the data
         let mean = rawEMGData.reduce(0.0, +) / Float(rawEMGData.count)
@@ -125,41 +123,34 @@ class BLEManager: NSObject, ObservableObject, CBCentralManagerDelegate {
         }
 
         // Proceed with RMS calculations
-        updateRMS(with: centeredData)
+        updateShortTermRMS(with: centeredData)
     }
 
-    func updateRMS(with newValues: [Float]) {
+    func updateShortTermRMS(with newValues: [Float]) {
         dataQueue.async {
             self.emgBuffer.append(contentsOf: newValues)
 
+            // Maintain a buffer for 0.1-second RMS
             if self.emgBuffer.count > self.windowSize {
                 self.emgBuffer.removeFirst(self.emgBuffer.count - self.windowSize)
             }
 
             if self.emgBuffer.count == self.windowSize {
-                let rms = self.calculateRMS(from: self.emgBuffer)
+                // Calculate RMS for 0.1-second interval
+                let shortTermRMS = self.calculateRMS(from: self.emgBuffer)
 
                 DispatchQueue.main.async {
-                    self.currentRMS = rms
-                    self.rmsHistory.append(rms)
+                    self.currentRMS = shortTermRMS
+                    self.rmsHistory.append(shortTermRMS)
                     if self.rmsHistory.count > 100 {
                         self.rmsHistory.removeFirst()
                     }
 
-                    // Update the 10-second RMS buffer and calculate max
-                    self.tenSecondRMSBuffer.append(rms)
-                    if self.tenSecondRMSBuffer.count > self.tenSecondSampleSize {
-                        self.tenSecondRMSBuffer.removeFirst()
-                    }
+                    print("Short-Term RMS (0.1s): \(shortTermRMS)")
 
-                    if self.tenSecondRMSBuffer.count == self.tenSecondSampleSize {
-                        let maxRMS = self.tenSecondRMSBuffer.max() ?? 0.0
-                        print("Max RMS over last 10 seconds: \(maxRMS)")
-                    }
+                    // Pass to 1-second RMS aggregation
+                    self.updateMoving1SecRMS(fromShortTermRMS: shortTermRMS)
                 }
-
-                // Update 1-second RMS in emgGraph
-                self.updateMoving1SecRMS(fromShortTermRMS: rms)
             }
         }
     }
@@ -170,20 +161,25 @@ class BLEManager: NSObject, ObservableObject, CBCentralManagerDelegate {
         return sqrt(squaredSum / Float(samples.count))
     }
 
-    private func updateMoving1SecRMS(fromShortTermRMS newRMS: Float) {
+    func updateMoving1SecRMS(fromShortTermRMS newRMS: Float) {
         shortTermRMSBuffer.append(newRMS)
 
-        // Maintain a buffer size of 10 (representing 1 second of data)
+        // Maintain a buffer of 10 values (1 second)
         if shortTermRMSBuffer.count > shortTermRMSWindowSize {
             shortTermRMSBuffer.removeFirst()
         }
 
-        // Calculate the 1-second RMS using a moving average if the buffer is full
+        // Calculate RMS over the 1-second buffer
         if shortTermRMSBuffer.count == shortTermRMSWindowSize {
-            let movingAverageRMS = shortTermRMSBuffer.reduce(0.0) { $0 + $1 } / Float(shortTermRMSBuffer.count)
+            let oneSecondRMS = calculateRMS(from: shortTermRMSBuffer)
 
             DispatchQueue.main.async {
-                self.emg.append(values: [CGFloat(movingAverageRMS)])
+                self.emg.oneSecondRMSHistory.append(CGFloat(oneSecondRMS))
+                if self.emg.oneSecondRMSHistory.count > 100 {
+                    self.emg.oneSecondRMSHistory.removeFirst()
+                }
+
+                print("1-Second RMS: \(oneSecondRMS)")
             }
         }
     }
@@ -239,5 +235,4 @@ extension BLEManager: CBPeripheralDelegate {
         }
     }
 }
-
 
