@@ -42,14 +42,13 @@ class emgGraph: ObservableObject {
     
     func stop_recording_and_save() -> String {
         recording = false
-        let sampleInterval = 1.0 / Double(sampleRate) // Adjusted for finer intervals
 
         // Header for CSV
-        var dataset = "Time,EMG (Raw Data),Short-Term RMS (0.1s),1-Second RMS,Max RMS (10s)\n"
+        var dataset = "Sample,EMG (Raw Data),Short-Term RMS (0.1s),1-Second RMS,Max RMS (10s)\n"
 
         // Export raw EMG data, short-term RMS, 1-second RMS, and max RMS
         for (index, rawValue) in recorded_values.enumerated() {
-            let time = Double(index) * sampleInterval
+            let sampleIndex = index // Use index directly as the sample number
             let shortTermRMS = index < shortTermRMSValues.count ? shortTermRMSValues[index] : 0.0
             var oneSecondRMS: Float = 0.0
             var maxRMSString = ""
@@ -69,7 +68,7 @@ class emgGraph: ObservableObject {
                 }
             }
 
-            dataset += "\(time),\(rawValue),\(shortTermRMS),\(oneSecondRMS),\(maxRMSString)\n"
+            dataset += "\(sampleIndex),\(rawValue),\(shortTermRMS),\(oneSecondRMS),\(maxRMSString)\n"
         }
 
         // Save dataset to file
