@@ -68,11 +68,11 @@ class emgGraph: ObservableObject {
                 oneSecondRMS = Float(recorded_rms[index / oneSecondRMSWindowSize])
             }
 
-            // Max RMS over 10 seconds: Update every 10 seconds
-            if index % (shortTermRMSWindowSize * 10) == 0 && index > 0 {
-                let startIndex = max(0, index - (shortTermRMSWindowSize * 10 - 1)) / oneSecondRMSWindowSize
-                let endIndex = index / oneSecondRMSWindowSize
-                if startIndex < recorded_rms.count && endIndex < recorded_rms.count {
+            // Max RMS over 10 seconds: Update every 1000 samples
+            if index % (oneSecondRMSWindowSize * longTermRMSWindowSize) == 0 && index / oneSecondRMSWindowSize >= longTermRMSWindowSize {
+                let startIndex = (index / oneSecondRMSWindowSize) - longTermRMSWindowSize
+                let endIndex = index / oneSecondRMSWindowSize - 1
+                if startIndex >= 0 && endIndex < recorded_rms.count {
                     let maxRMS = recorded_rms[startIndex...endIndex].max() ?? 0.0
                     maxRMSString = "\(maxRMS)"
                 }
