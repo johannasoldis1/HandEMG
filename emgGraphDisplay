@@ -15,10 +15,10 @@ class emgGraph: ObservableObject {
     var recording: Bool = false // Recording state
     var start_time: CFTimeInterval = 0 // Start time for recording
     private var shortTermRMSBuffer: [CGFloat] = [] // Buffer for 0.1-second RMS calculation
-    private let shortTermRMSWindowSize = 10 // 10 samples for 0.1-second RMS
+    private let shortTermRMSWindowSize = 100 // 100 samples for 0.1-second RMS
 
     private var oneSecondRMSBuffer: [CGFloat] = [] // Buffer for 1-second RMS calculation
-    private let oneSecondRMSWindowSize = 100 // 100 samples for 1-second RMS
+    private let oneSecondRMSWindowSize = 1000 // 1000 samples for 1-second RMS
 
     private var longTermRMSBuffer: [CGFloat] = [] // Buffer for 10-second max RMS calculation
     private let longTermRMSWindowSize = 10 // 10 x 1-second RMS values
@@ -49,26 +49,26 @@ class emgGraph: ObservableObject {
         // Header for CSV
         var dataset = "Sample,EMG (Raw Data),Short-Term RMS (0.1s),1-Second RMS,Max RMS (10s)\n"
 
-        // Export raw EMG data, short-term RMS (every 10 samples), 1-second RMS, and max RMS
+        // Export raw EMG data, short-term RMS (every 100 samples), 1-second RMS (every 1000 samples), and max RMS
         for (index, rawValue) in recorded_values.enumerated() {
             let sampleIndex = index // Use index directly as the sample number
             let shortTermRMS: Float
             var oneSecondRMS: Float = 0.0
             var maxRMSString = ""
 
-            // Short-Term RMS: Only include every 10th sample
+            // Short-Term RMS: Only include every 100th sample
             if index % shortTermRMSWindowSize == 0 && index / shortTermRMSWindowSize < shortTermRMSValues.count {
                 shortTermRMS = shortTermRMSValues[index / shortTermRMSWindowSize]
             } else {
-                shortTermRMS = 0.0 // Leave blank for non-10th samples
+                shortTermRMS = 0.0 // Leave blank for non-100th samples
             }
 
-            // 1-Second RMS: Only update every 100 samples
+            // 1-Second RMS: Only update every 1000 samples
             if index % oneSecondRMSWindowSize == 0 && index / oneSecondRMSWindowSize < recorded_rms.count {
                 oneSecondRMS = Float(recorded_rms[index / oneSecondRMSWindowSize])
             }
 
-            // Max RMS over 10 seconds: Update every 1000 samples
+            // Max RMS over 10 seconds: Update every 10,000 samples
             if index % (oneSecondRMSWindowSize * longTermRMSWindowSize) == 0 && index / oneSecondRMSWindowSize >= longTermRMSWindowSize {
                 let startIndex = (index / oneSecondRMSWindowSize) - longTermRMSWindowSize
                 let endIndex = index / oneSecondRMSWindowSize - 1
@@ -113,7 +113,7 @@ class emgGraph: ObservableObject {
                 shortTermRMSBuffer.append(value)
                 shortTermSampleCounter += 1
 
-                // Calculate short-term RMS every 10 samples
+                // Calculate short-term RMS every 100 samples
                 if shortTermSampleCounter >= shortTermRMSWindowSize {
                     let shortTermRMS = calculateRMS(for: shortTermRMSBuffer)
                     DispatchQueue.main.async {
@@ -138,7 +138,7 @@ class emgGraph: ObservableObject {
                         if self.oneSecondRMSHistory.count > 100 {
                             self.oneSecondRMSHistory.removeFirst()
                         }
-                        self.recorded_rms.append(oneSecondRMS) // Append the 1-second RMS every 100 samples
+                        self.recorded_rms.append(oneSecondRMS) // Append the 1-second RMS every 1000 samples
                     }
                     updateMax10SecRMS(oneSecondRMS)
                     oneSecondRMSBuffer.removeAll() // Clear buffer after calculation
