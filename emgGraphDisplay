@@ -45,9 +45,12 @@ class emgGraph: ObservableObject {
     
     func stop_recording_and_save() -> String {
         recording = false
+        let stop_time = CACurrentMediaTime()
+        let recording_duration = stop_time - start_time // Calculate total recording duration
 
         // Header for CSV
-        var dataset = "Sample,EMG (Raw Data),Short-Term RMS (0.1s),1-Second RMS,Max RMS (10s)\n"
+        var dataset = "Recording Duration (s):,\(recording_duration)\n"
+        dataset += "Sample,EMG (Raw Data),Short-Term RMS (0.1s),1-Second RMS,Max RMS (10s)\n"
 
         // Export raw EMG data, short-term RMS (every 100 samples), 1-second RMS (every 1000 samples), and max RMS
         for (index, rawValue) in recorded_values.enumerated() {
