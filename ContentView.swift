@@ -43,7 +43,7 @@ struct ContentView: View {
 
                 // New RMS Graph
                 VStack {
-                    Text("RMS Data")
+                    Text("100 sample RMS")
                         .font(.headline)
                         .foregroundColor(.red)
                     
@@ -69,7 +69,7 @@ struct ContentView: View {
 
                 // 1-Second RMS Graph
                 VStack {
-                    Text("1-Second RMS Data")
+                    Text("1000 sample RMS")
                         .font(.headline)
                         .foregroundColor(.green)
 
@@ -79,13 +79,13 @@ struct ContentView: View {
 
                         guard !graph.oneSecondRMSHistory.isEmpty else { return }
 
-                        let smoothedRMS = smoothRMS(data: graph.oneSecondRMSHistory, windowSize: 5)
                         let midY = height / 2
 
-                        path.move(to: CGPoint(x: 0, y: midY - height / 2 * CGFloat(smoothedRMS.first ?? 0)))
+                        // Use raw oneSecondRMSHistory data directly
+                        path.move(to: CGPoint(x: 0, y: midY - height / 2 * CGFloat(graph.oneSecondRMSHistory.first ?? 0)))
 
-                        for (index, value) in smoothedRMS.enumerated() {
-                            let x = CGFloat(index) * width / CGFloat(smoothedRMS.count - 1)
+                        for (index, value) in graph.oneSecondRMSHistory.enumerated() {
+                            let x = CGFloat(index) * width / CGFloat(graph.oneSecondRMSHistory.count - 1)
                             let y = midY - height / 2 * CGFloat(value)
                             path.addLine(to: CGPoint(x: x, y: y))
                         }
