@@ -50,7 +50,7 @@ class emgGraph: ObservableObject {
 
         // Header for CSV
         var dataset = "Recording Duration (s):,\(recording_duration)\n"
-        dataset += "Sample,EMG (Raw Data),Short-Term RMS (0.1s),1-Second RMS,Max RMS (10s)\n"
+        dataset += "Sample,EMG (Raw Data),100 samples RMS,1000 samples RMS,Max RMS (of 1000 samples)\n"
 
         // Export raw EMG data, short-term RMS (every 100 samples), 1-second RMS (every 1000 samples), and max RMS
         for (index, rawValue) in recorded_values.enumerated() {
@@ -184,4 +184,5 @@ class emgGraph: ObservableObject {
         }
     }
 }
+
 
