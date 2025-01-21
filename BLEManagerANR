@@ -1,0 +1,250 @@
+//
+//  BLEManager.swift
+//  EMG-ble-kth
+//
+
+import Foundation
+import CoreBluetooth
+
+struct Peripheral: Identifiable {
+    let id: Int
+    let name: String
+    let rssi: Int
+}
+
+class BLEManager: NSObject, ObservableObject, CBCentralManagerDelegate {
+    var myCentral: CBCentralManager!
+    @Published var BLEisOn = false
+    @Published var BLEPeripherals = [Peripheral]()
+    @Published var isConnected = false
+    var CBPeripherals = [CBPeripheral]()
+    var emg: emgGraph
+    
+    // RMS Buffers and Calculation
+    private var emgBuffer: [Float] = [] // Buffer for 0.1-second RMS calculation
+    private let windowSize = 10 // 0.1 seconds at 8 Hz sampling rate
+    @Published var currentRMS: Float = 0.0 // Latest 0.1-second RMS
+    @Published var rmsHistory: [Float] = [] // Store historical 0.1-second RMS values
+    
+    private var oneSecondBuffer: [Float] = [] // Buffer for 1-second RMS calculation
+    private let oneSecondWindowSize = 100 // 1 second at 100 Hz sampling rate
+    @Published var oneSecondRMS: Float = 0.0 // Latest 1-second RMS
+    
+    private let dataQueue = DispatchQueue(label: "com.emg.ble.data")
+    
+    init(emg: emgGraph) {
+        self.emg = emg
+        super.init()
+        myCentral = CBCentralManager(delegate: self, queue: nil)
+    }
+    
+    func centralManagerDidUpdateState(_ central: CBCentralManager) {
+        DispatchQueue.main.async {
+            self.BLEisOn = (central.state == .poweredOn)
+        }
+    }
+    
+    func startScanning() {
+        guard !isConnected else {
+            print("Already connected, skipping scanning.")
+            return
+        }
+        print("Start Scanning for ANR M40")
+        BLEPeripherals.removeAll()
+        CBPeripherals.removeAll()
+        myCentral.scanForPeripherals(withServices: nil, options: nil)
+    }
+    
+    func stopScanning() {
+        print("Stop Scanning")
+        myCentral.stopScan()
+    }
+    
+    func connectSensor(p: Peripheral) {
+        guard p.id < CBPeripherals.count else {
+            print("Invalid peripheral ID")
+            return
+        }
+        myCentral.connect(CBPeripherals[p.id])
+    }
+    
+    func centralManager(_ central: CBCentralManager, didDiscover peripheral: CBPeripheral, advertisementData: [String: Any], rssi RSSI: NSNumber) {
+        let targetCompanyID: UInt16 = 0x05DA  // ANR Corp Company ID
+        
+        if let manufacturerData = advertisementData[CBAdvertisementDataManufacturerDataKey] as? Data {
+            let bytes = [UInt8](manufacturerData)
+            if bytes.count >= 2 {
+                let companyID = UInt16(bytes[0]) | (UInt16(bytes[1]) << 8) // Little Endian
+                if companyID != targetCompanyID {
+                    print("Skipping device with different Manufacturer ID: \(companyID)")
+                    return
+                }
+                print("Found ANR M40 via Manufacturer Data!")
+            }
+        } else {
+            print("Skipping device: No Manufacturer Data")
+            return
+        }
+        
+        let peripheralName = advertisementData[CBAdvertisementDataLocalNameKey] as? String ?? "Unknown"
+        let newPeripheral = Peripheral(id: BLEPeripherals.count, name: peripheralName, rssi: RSSI.intValue)
+        
+        DispatchQueue.main.async {
+            self.BLEPeripherals.append(newPeripheral)
+        }
+        CBPeripherals.append(peripheral)
+        print("Added device: \(peripheralName) with RSSI: \(RSSI.intValue)")
+    }
+    
+    func centralManager(_ central: CBCentralManager, didConnect peripheral: CBPeripheral) {
+        print("Connected to \(peripheral.name ?? "Unknown Device")")
+        DispatchQueue.main.async {
+            self.isConnected = true
+        }
+        myCentral.stopScan()
+        peripheral.delegate = self
+        peripheral.discoverServices(nil)
+    }
+    
+    func centralManager(_ central: CBCentralManager, didDisconnectPeripheral peripheral: CBPeripheral, error: Error?) {
+        print("Disconnected from \(peripheral.name ?? "Unknown Device")")
+        DispatchQueue.main.async {
+            self.isConnected = false
+        }
+    }
+    
+    // RMS Calculations and Updates
+    func processAndAppendEMGData(_ rawEMGData: [Float]) {
+        // Calculate mean and center the data
+        let mean = rawEMGData.reduce(0.0, +) / Float(rawEMGData.count)
+        let centeredData = rawEMGData.map { $0 - mean }
+        
+        DispatchQueue.main.async {
+            self.emg.append(values: centeredData.map { CGFloat($0) })
+        }
+        
+        updateShortTermRMS(with: centeredData) // 0.1-second RMS
+        updateOneSecondRMS(with: centeredData) // 1-second RMS
+    }
+    
+    func updateShortTermRMS(with newValues: [Float]) {
+        dataQueue.async {
+            self.emgBuffer.append(contentsOf: newValues)
+            if self.emgBuffer.count > self.windowSize {
+                self.emgBuffer.removeFirst(self.emgBuffer.count - self.windowSize)
+            }
+            
+            if self.emgBuffer.count == self.windowSize {
+                let shortTermRMS = self.calculateRMS(from: self.emgBuffer)
+                
+                DispatchQueue.main.async {
+                    self.currentRMS = shortTermRMS
+                    self.rmsHistory.append(shortTermRMS)
+                    if self.rmsHistory.count > 100 {
+                        self.rmsHistory.removeFirst()
+                    }
+                    
+                    print("Short-Term RMS (0.1s): \(shortTermRMS)")
+                }
+            }
+        }
+    }
+    
+    func updateOneSecondRMS(with newValues: [Float]) {
+        dataQueue.async {
+            self.oneSecondBuffer.append(contentsOf: newValues)
+            
+            if self.oneSecondBuffer.count > self.oneSecondWindowSize {
+                self.oneSecondBuffer.removeFirst(self.oneSecondBuffer.count - self.oneSecondWindowSize)
+            }
+            
+            if self.oneSecondBuffer.count == self.oneSecondWindowSize {
+                let oneSecRMS = self.calculateRMS(from: self.oneSecondBuffer)
+                
+                DispatchQueue.main.async {
+                    self.oneSecondRMS = oneSecRMS
+                    print("1-Second RMS: \(oneSecRMS)")
+                }
+            }
+        }
+    }
+    
+    func calculateRMS(from samples: [Float]) -> Float {
+        guard !samples.isEmpty else { return 0.0 }
+        let squaredSum = samples.reduce(0.0) { $0 + $1 * $1 }
+        return sqrt(squaredSum / Float(samples.count))
+    }
+}
+
+extension BLEManager: CBPeripheralDelegate {
+        
+        func peripheral(_ peripheral: CBPeripheral, didDiscoverServices error: Error?) {
+            if let error = error {
+                print("Error discovering services: \(error.localizedDescription)")
+                return
+            }
+            guard let services = peripheral.services else { return }
+            
+            for service in services {
+                print("Discovered Service: \(service.uuid.uuidString)")
+                peripheral.discoverCharacteristics(nil, for: service)
+            }
+        }
+        
+        func peripheral(_ peripheral: CBPeripheral, didDiscoverCharacteristicsFor service: CBService, error: Error?) {
+            if let error = error {
+                print("Error discovering characteristics: \(error.localizedDescription)")
+                return
+            }
+            guard let characteristics = service.characteristics else { return }
+            
+            for characteristic in characteristics {
+                print("Discovered Characteristic: \(characteristic.uuid.uuidString)")
+                
+                // Enable notifications for EMG data (0x2A58)
+                if characteristic.uuid == CBUUID(string: "2A58") && characteristic.properties.contains(.notify) {
+                    print("Enabling notifications for EMG data...")
+                    peripheral.setNotifyValue(true, for: characteristic)
+                }
+                
+                // Read battery level (0x2A19) if available
+                if characteristic.uuid == CBUUID(string: "2A19") {
+                    peripheral.readValue(for: characteristic)
+                }
+            }
+        }
+        
+        func peripheral(_ peripheral: CBPeripheral, didUpdateValueFor characteristic: CBCharacteristic, error: Error?) {
+            if let error = error {
+                print("Error updating value for characteristic: \(error.localizedDescription)")
+                return
+            }
+            
+            switch characteristic.uuid {
+            case CBUUID(string: "2A58"): // EMG Data Characteristic
+                guard let characteristicData = characteristic.value else { return }
+                let byteArray = [UInt8](characteristicData)
+                
+                guard byteArray.count >= 2 else {
+                    print("Invalid EMG data length")
+                    return
+                }
+                
+                let value = UInt16(byteArray[0]) | (UInt16(byteArray[1]) << 8) // Convert bytes to UInt16
+                let normalizedValue = Float(value) / 1023.0
+                DispatchQueue.main.async {
+                    self.processAndAppendEMGData([normalizedValue])
+                }
+                print("EMG Data: \(normalizedValue)")
+                
+            case CBUUID(string: "2A19"): // Battery Level Characteristic
+                guard let batteryData = characteristic.value else { return }
+                let batteryLevel = batteryData.first ?? 0
+                print("Battery Level: \(batteryLevel)%")
+                
+            default:
+                print("Unhandled characteristic UUID: \(characteristic.uuid.uuidString)")
+            }
+        }
+    }
+
