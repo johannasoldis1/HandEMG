@@ -168,12 +168,15 @@ class BLEManager: NSObject, ObservableObject, CBCentralManagerDelegate {
                         self.rmsHistory.removeFirst()
                     }
 
-                    print("Short-Term RMS (0.1s): \(shortTermRMS)")
+                    // Add short-term RMS to emgGraph
+                    self.emg.shortTermRMSHistory.append(CGFloat(shortTermRMS))
                 }
+
+                print("Short-Term RMS (0.1s): \(shortTermRMS)")
             }
         }
     }
-
+    
     func updateOneSecondRMS(with newValues: [Float]) {
         dataQueue.async {
             self.oneSecondBuffer.append(contentsOf: newValues)
@@ -189,8 +192,12 @@ class BLEManager: NSObject, ObservableObject, CBCentralManagerDelegate {
 
                 DispatchQueue.main.async {
                     self.oneSecondRMS = oneSecRMS
-                    print("1-Second RMS: \(oneSecRMS)")
+
+                    // Add one-second RMS to emgGraph
+                    self.emg.oneSecondRMSHistory.append(CGFloat(oneSecRMS))
                 }
+
+                print("1-Second RMS: \(oneSecRMS)")
             }
         }
     }
@@ -267,5 +274,6 @@ extension BLEManager: CBPeripheralDelegate {
         }
     }
 }
+
 
 
